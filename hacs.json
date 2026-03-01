@@ -1,0 +1,6 @@
+{
+  "name": "Aroma-Link Schedule Card",
+  "render_readme": true,
+  "filename": "aroma-link-schedule-card.js",
+  "homeassistant": "2023.1.0"
+}
