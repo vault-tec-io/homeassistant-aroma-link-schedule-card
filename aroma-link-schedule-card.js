@@ -1,6 +1,6 @@
 /**
- * Aroma-Link Schedule Card v2.0
- * Simplified, collapsible design with auto device detection
+ * Aroma-Link Schedule Card v3.0
+ * Passes entity_id to service — integration resolves device_id server-side
  */
 
 class AromaLinkScheduleCard extends HTMLElement {
@@ -17,42 +17,32 @@ class AromaLinkScheduleCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
 
-    // Auto-detect device from entity
-    if (!this._deviceId) {
-      this._deviceId = this._getDeviceId();
-    }
-
-    // Load schedule data
-    this._loadScheduleData();
-    this._render();
-  }
-
-  _getDeviceId() {
-    // Get entity base name (e.g., "smart" from "switch.smart")
+    // Only reload and re-render when a relevant schedule entity changes.
+    // This prevents destroying in-progress user edits on unrelated state updates.
     const baseName = this._config.entity.split('.')[1];
+    const watchedIds = Array.from({ length: 5 }, (_, i) =>
+      `binary_sensor.${baseName}_schedule_block_${i + 1}`
+    );
+    const hasChange = !oldHass || watchedIds.some(id => hass.states[id] !== oldHass.states[id]);
 
-    // Try to find a schedule block entity
-    const scheduleEntityId = `binary_sensor.${baseName}_schedule_block_1`;
-    const entity = this._hass?.states[scheduleEntityId];
-
-    if (entity?.attributes?.unique_id) {
-      // Extract device_id from unique_id (e.g., "393705_schedule_block_1")
-      const deviceId = entity.attributes.unique_id.split('_')[0];
-      return deviceId;
+    if (hasChange) {
+      this._loadScheduleData();
+      this._render();
     }
-
-    return null;
   }
 
   _loadScheduleData() {
     const baseName = this._config.entity.split('.')[1];
+    const prevBlocks = this._blocks || [];
     this._blocks = [];
 
     for (let i = 1; i <= 5; i++) {
       const entityId = `binary_sensor.${baseName}_schedule_block_${i}`;
       const entity = this._hass?.states[entityId];
+      const prev = prevBlocks[i - 1];
 
       this._blocks.push({
         number: i,
@@ -64,7 +54,7 @@ class AromaLinkScheduleCard extends HTMLElement {
         pauseDuration: entity?.attributes?.pause_duration || 120,
         days: entity?.attributes?.days || [],
         daysDisplay: entity?.attributes?.days_display || 'None',
-        expanded: false
+        expanded: prev?.expanded || false
       });
     }
   }
@@ -92,13 +82,6 @@ class AromaLinkScheduleCard extends HTMLElement {
         .title {
           font-size: 24px;
           font-weight: 500;
-        }
-        .device-id {
-          font-size: 11px;
-          color: var(--secondary-text-color);
-          background: var(--secondary-background-color);
-          padding: 4px 8px;
-          border-radius: 4px;
         }
         .block {
           margin-bottom: 8px;
@@ -270,12 +253,16 @@ class AromaLinkScheduleCard extends HTMLElement {
       </style>
     `;
 
-    if (!this._deviceId) {
+    const baseName = this._config.entity.split('.')[1];
+    const firstBlockId = `binary_sensor.${baseName}_schedule_block_1`;
+    if (!this._hass?.states?.[firstBlockId]) {
       this.shadowRoot.innerHTML = styles + `
-        <div class="error">
-          <strong>⚠️ Cannot find device</strong><br>
-          Unable to detect device_id from entity: ${this._config.entity}<br>
-          Make sure the schedule block entities exist.
+        <div class="card">
+          <div class="header"><div class="title">Schedule Manager</div></div>
+          <div style="padding:16px;color:var(--secondary-text-color);text-align:center;">
+            Waiting for schedule entities&hellip;<br>
+            <small>Expected: <code>${firstBlockId}</code></small>
+          </div>
         </div>
       `;
       return;
@@ -284,8 +271,7 @@ class AromaLinkScheduleCard extends HTMLElement {
     const content = `
       <div class="card">
         <div class="header">
-          <div class="title">📅 Schedule Manager</div>
-          <div class="device-id">Device: ${this._deviceId}</div>
+          <div class="title">Schedule Manager</div>
         </div>
         ${this._blocks.map(block => this._renderBlock(block)).join('')}
       </div>
@@ -400,7 +386,7 @@ class AromaLinkScheduleCard extends HTMLElement {
     const block = this._blocks[blockNum - 1];
 
     this._hass.callService('aroma_link', 'set_schedule_block', {
-      device_id: this._deviceId,
+      entity_id: this._config.entity,
       block_number: blockNum,
       start_time: block.startTime,
       end_time: block.endTime,
@@ -445,4 +431,4 @@ window.customCards.push({
   description: 'Manage diffuser schedules with collapsible blocks'
 });
 
-console.info('%c AROMA-LINK-SCHEDULE-CARD %c v2.0 ', 'color: white; background: #039be5; font-weight: 700;', 'color: #039be5; background: white; font-weight: 700;');
+console.info('%c AROMA-LINK-SCHEDULE-CARD %c v3.0 ', 'color: white; background: #039be5; font-weight: 700;', 'color: #039be5; background: white; font-weight: 700;');
